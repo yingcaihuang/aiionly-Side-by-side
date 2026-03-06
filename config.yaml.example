@@ -1,0 +1,62 @@
+# Model Comparison System Configuration
+# 
+# This file contains all configuration settings for the Model Comparison System.
+# Copy this file to config.yaml and update the values as needed.
+
+# API Configuration
+api:
+  # Base URL for the MAAS API endpoint
+  # The client will append /v1/chat/completions to this URL
+  base_url: "https://api.aiionly.com"
+  
+  # Your MAAS API key - REQUIRED
+  # Get your API key from https://maas.aiionly.com
+  # Replace "your-api-key-here" with your actual API key
+  api_key: "your-api-key-here"
+  
+  # Request timeout in seconds (default: 30)
+  # Increase if models are slow to respond
+  timeout: 30
+  
+  # Maximum number of retry attempts for failed requests (default: 3)
+  # The system will retry on rate limits and transient errors
+  max_retries: 3
+
+# Model Configuration
+models:
+  # List of all supported model IDs
+  # These are the models available through the MAAS API
+  supported_models:
+    - "glm-4.6v-flash"      # GLM-4 Flash model
+    - "gpt-oss-120b"        # GPT OSS 120B model
+    - "grok-4"              # Grok-4 model
+    - "gemini-2.5-flash"    # Gemini 2.5 Flash model
+  
+  # Default models to use for comparisons
+  # You can remove models from this list if you don't want to use them
+  # Must be a subset of supported_models
+  default_models:
+    - "glm-4.6v-flash"
+    - "gpt-oss-120b"
+    - "grok-4"
+    - "gemini-2.5-flash"
+  
+  # Maximum number of parallel API calls (default: 4)
+  # Reduce if you encounter rate limiting issues
+  # Increase if you have higher rate limits and want faster responses
+  max_parallel_calls: 4
+
+# Logging Configuration
+logging:
+  # Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  # Use DEBUG for development, INFO for production
+  level: "INFO"
+  
+  # Log message format
+  # See Python logging documentation for format options
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  
+  # Log file path (optional)
+  # Set to null or remove to disable file logging
+  # Logs will always be shown in the console
+  file: "model_comparison.log"
