@@ -279,43 +279,24 @@ class GradioInterface:
                     completed_count[0] += 1
                     streaming_responses[model_id] = response
                 
-                # Run async comparison with streaming
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                
+                # Run async comparison - use asyncio.run() in a simpler way
                 try:
-                    # Create async task
-                    async def run_comparison():
-                        return await self.app_controller.submit_prompt(prompt, streaming_callback, selected_models)
-                    
-                    # Start the task
-                    task = loop.create_task(run_comparison())
-                    
-                    # Poll for updates while task is running
-                    last_completed = 0
-                    while not task.done():
-                        loop.run_until_complete(asyncio.sleep(0.2))  # Check every 200ms
-                        
-                        if completed_count[0] > last_completed:
-                            last_completed = completed_count[0]
-                            # Yield modern progress update
-                            progress_percent = int((completed_count[0] / total_models) * 100)
-                            yield (
-                                f'<div style="padding: 16px 20px; background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%); border-left: 4px solid #3b82f6; border-radius: 10px;"><span style="font-size: 1.2em;">⚡</span> <strong>处理中...</strong> {completed_count[0]}/{total_models} 个模型已完成 ({progress_percent}%)</div>',
-                                gr.update(visible=True),
-                                self._format_streaming_html(streaming_responses, prompt, completed_count[0], total_models),
-                                gr.update(visible=False)
-                            )
-                    
-                    # Get final result
-                    result = loop.run_until_complete(task)
-                    
-                finally:
-                    loop.close()
+                    result = asyncio.run(
+                        self.app_controller.submit_prompt(prompt, streaming_callback, selected_models)
+                    )
+                except Exception as e:
+                    self.logger.error(f"Error in submit_prompt_handler: {e}", exc_info=True)
+                    yield (
+                        f'<div style="padding: 16px 20px; background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%); border-left: 4px solid #ef4444; border-radius: 10px;"><span style="font-size: 1.2em;">❌</span> <strong>错误：</strong> {str(e)}</div>',
+                        gr.update(visible=False),
+                        "",
+                        gr.update(visible=False)
+                    )
+                    return
                 
-                if not result['success']:
+                if not result or not result['success']:
                     # Modern error display
-                    error_msg = result['error']
+                    error_msg = result.get('error', '未知错误') if result else '未知错误'
                     icon = "⚙️" if 'configuration' in error_msg.lower() or '配置' in error_msg else "🌐" if 'network' in error_msg.lower() or '网络' in error_msg else "⏱️" if 'timeout' in error_msg.lower() or '超时' in error_msg else "🔐" if 'authentication' in error_msg.lower() or '认证' in error_msg else "❌"
                     
                     yield (
