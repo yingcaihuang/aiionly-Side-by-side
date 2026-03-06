@@ -106,14 +106,15 @@ class AppController:
             return True, ""
 
     
-    async def submit_prompt(self, prompt: str, callback: Optional[callable] = None) -> Dict[str, Any]:
+    async def submit_prompt(self, prompt: str, callback: Optional[callable] = None, selected_models: Optional[List[str]] = None) -> Dict[str, Any]:
         """
-        Submit a prompt for comparison across all configured models.
+        Submit a prompt for comparison across selected models.
         
         Args:
             prompt: The user's input prompt
             callback: Optional callback function for streaming updates
                      Signature: callback(model_id: str, response: ModelResponse)
+            selected_models: Optional list of model IDs to use. If None, uses default models from config.
             
         Returns:
             Dictionary containing comparison results and metadata
@@ -142,8 +143,30 @@ class AppController:
                 }
         
         try:
-            # Get model IDs from configuration
-            model_ids = self._current_config.models.supported_models
+            # Get model IDs - use selected models if provided, otherwise use default from config
+            if selected_models:
+                # Validate that selected models are in supported models
+                supported = set(self._current_config.models.supported_models)
+                invalid_models = [m for m in selected_models if m not in supported]
+                if invalid_models:
+                    return {
+                        'success': False,
+                        'error': f"Invalid models selected: {', '.join(invalid_models)}",
+                        'responses': {},
+                        'metadata': {}
+                    }
+                model_ids = selected_models
+            else:
+                model_ids = self._current_config.models.default_models
+            
+            # Check if at least one model is selected
+            if not model_ids:
+                return {
+                    'success': False,
+                    'error': "请至少选择一个模型进行对比",
+                    'responses': {},
+                    'metadata': {}
+                }
             
             # Submit to model service for parallel processing with streaming callback
             start_time = datetime.now()

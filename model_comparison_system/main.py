@@ -108,6 +108,15 @@ class GradioInterface:
                     </div>
                     """)
                     
+                    # Model selection section
+                    gr.Markdown("### 🤖 选择对比模型")
+                    
+                    model_selector = gr.CheckboxGroup(
+                        label="",
+                        choices=[],  # Will be populated dynamically
+                        value=[]     # Will be set to default models
+                    )
+                    
                     with gr.Row():
                         submit_btn = gr.Button(
                             "🚀 开始对比",
@@ -149,12 +158,20 @@ class GradioInterface:
             
             # Event handlers
             def update_config_status():
-                """Update configuration status display with modern styling."""
+                """Update configuration status display and model selector with modern styling."""
                 is_valid, errors = self.app_controller.validate_configuration()
                 if is_valid:
                     models = self.app_controller.get_supported_models()
                     config_info = self.app_controller.get_configuration_info()
-                    return f"""
+                    
+                    # Get default models from config - use the actual config object
+                    try:
+                        config = self.app_controller._current_config
+                        default_models = config.models.default_models if config else models[:4]
+                    except:
+                        default_models = models[:4]  # Fallback to first 4 if not set
+                    
+                    status_html = f"""
                     <div style="padding: 16px 20px; background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%); border-left: 4px solid #10b981; border-radius: 10px; box-shadow: 0 2px 8px rgba(16, 185, 129, 0.1);">
                         <div style="display: flex; align-items: center; gap: 12px;">
                             <span style="font-size: 1.5em;">✅</span>
@@ -171,9 +188,12 @@ class GradioInterface:
                         </div>
                     </div>
                     """
+                    
+                    # Return status HTML and model selector update
+                    return status_html, gr.update(choices=models, value=default_models)
                 else:
                     error_details = '; '.join(errors)
-                    return f"""
+                    status_html = f"""
                     <div style="padding: 16px 20px; background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%); border-left: 4px solid #ef4444; border-radius: 10px; box-shadow: 0 2px 8px rgba(239, 68, 68, 0.1);">
                         <div style="display: flex; align-items: center; gap: 12px;">
                             <span style="font-size: 1.5em;">❌</span>
@@ -191,9 +211,20 @@ class GradioInterface:
                         </div>
                     </div>
                     """
+                    return status_html, gr.update(choices=[], value=[])
             
-            def submit_prompt_handler(prompt: str):
+            def submit_prompt_handler(prompt: str, selected_models: List[str]):
                 """Handle prompt submission with modern UI updates."""
+                # Validate selected models
+                if not selected_models:
+                    yield (
+                        '<div style="padding: 16px 20px; background: #fef2f2; border-left: 4px solid #ef4444; border-radius: 10px;"><span style="font-size: 1.2em;">❌</span> <strong>请至少选择一个模型</strong></div>',
+                        gr.update(visible=False),
+                        "",
+                        gr.update(visible=False)
+                    )
+                    return
+                
                 # Enhanced client-side validation
                 if not prompt or not prompt.strip():
                     yield (
@@ -227,7 +258,7 @@ class GradioInterface:
                 
                 # Initialize streaming state
                 streaming_responses = {}
-                model_ids = self.app_controller.get_supported_models()
+                model_ids = selected_models
                 total_models = len(model_ids)
                 completed_count = [0]  # Use list to allow modification in callback
                 
@@ -255,7 +286,7 @@ class GradioInterface:
                 try:
                     # Create async task
                     async def run_comparison():
-                        return await self.app_controller.submit_prompt(prompt, streaming_callback)
+                        return await self.app_controller.submit_prompt(prompt, streaming_callback, selected_models)
                     
                     # Start the task
                     task = loop.create_task(run_comparison())
@@ -324,19 +355,19 @@ class GradioInterface:
             # Wire up events
             interface.load(
                 fn=update_config_status,
-                outputs=[config_status]
+                outputs=[config_status, model_selector]
             )
             
             submit_btn.click(
                 fn=submit_prompt_handler,
-                inputs=[prompt_input],
+                inputs=[prompt_input, model_selector],
                 outputs=[status_text, results_section, responses_display, metadata_display]
             )
             
             # Allow Enter key to submit
             prompt_input.submit(
                 fn=submit_prompt_handler,
-                inputs=[prompt_input],
+                inputs=[prompt_input, model_selector],
                 outputs=[status_text, results_section, responses_display, metadata_display]
             )
         
@@ -348,40 +379,6 @@ class GradioInterface:
             return "<p>No responses to display.</p>"
         
         html_parts = []
-        
-        # Add summary with enhanced error information
-        success_count = metadata.get('success_count', 0)
-        error_count = metadata.get('error_count', 0)
-        total_count = metadata.get('model_count', 0)
-        
-        summary_color = "#f0f9ff"  # Default blue
-        if error_count == total_count:
-            summary_color = "#fef2f2"  # Red for all failed
-        elif error_count > 0:
-            summary_color = "#fffbeb"  # Yellow for partial failure
-        else:
-            summary_color = "#f0fdf4"  # Green for all success
-        
-        html_parts.append(f"""
-        <div style="background-color: {summary_color}; padding: 12px; border-radius: 8px; margin-bottom: 16px;">
-            <h3>📋 Comparison Summary</h3>
-            <p><strong>Prompt:</strong> {metadata.get('prompt', 'N/A')[:200]}{'...' if len(metadata.get('prompt', '')) > 200 else ''}</p>
-            <p><strong>Models:</strong> {total_count} total | 
-               <span style="color: #10b981;"><strong>✅ Successful:</strong> {success_count}</span> | 
-               <span style="color: #ef4444;"><strong>❌ Failed:</strong> {error_count}</span> | 
-               <strong>Duration:</strong> {metadata.get('total_duration', 0):.2f}s</p>
-        """)
-        
-        # Add error summary if there are failures
-        if error_count > 0:
-            html_parts.append(f"""
-            <div style="background-color: #fef2f2; padding: 8px; border-radius: 4px; margin-top: 8px; border-left: 4px solid #ef4444;">
-                <strong>⚠️ Note:</strong> {error_count} model(s) failed to respond. 
-                Check individual model results below for specific error details and troubleshooting guidance.
-            </div>
-            """)
-        
-        html_parts.append('</div>')
         
         # Add responses in modern card grid layout
         html_parts.append('<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(450px, 1fr)); gap: 20px; margin-top: 24px;">')
@@ -400,85 +397,42 @@ class GradioInterface:
                 status_badge = '<span style="background: #ef4444; color: white; padding: 4px 12px; border-radius: 20px; font-size: 0.85em; font-weight: 600;">✗ 错误</span>'
             
             # Format duration and timestamp
-            duration_text = f"{response.duration:.2f}s" if response.duration else "N/A"
+            duration_text = f"{response.duration:.2f}秒" if response.duration else "N/A"
             timestamp_text = response.timestamp.strftime("%H:%M:%S") if response.timestamp else "N/A"
             
             html_parts.append(f"""
-            <div style="background: {bg_gradient}; border: 2px solid {border_color}; border-radius: 16px; padding: 0; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.08); transition: transform 0.2s, box-shadow 0.2s;">
-                <!-- Card Header -->
+            <div style="background: {bg_gradient}; border: 2px solid {border_color}; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.08);">
                 <div style="background: white; padding: 16px 20px; border-bottom: 2px solid {border_color};">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                        <h3 style="margin: 0; color: #1f2937; font-size: 1.2em; font-weight: 700;">
-                            {model_id}
-                        </h3>
+                        <h3 style="margin: 0; color: #1f2937; font-size: 1.2em; font-weight: 700;">{model_id}</h3>
                         {status_badge}
                     </div>
                     <div style="display: flex; gap: 16px; font-size: 0.9em; color: #6b7280;">
-                        <span>⏱️ {duration_text}</span>
+                        <span><strong>⏱️ 用时：</strong>{duration_text}</span>
                         <span>🕐 {timestamp_text}</span>
                     </div>
                 </div>
-                
-                <!-- Card Body -->
                 <div style="padding: 20px;">
             """)
             
             if response.error_message:
-                # Modern error display
+                # Error display
+                error_html = html.escape(response.error_message)
                 html_parts.append(f"""
                 <div style="background: white; padding: 16px; border-radius: 10px; border-left: 4px solid #ef4444;">
-                    <div style="color: #dc2626; line-height: 1.7; font-size: 0.95em;">
-                        {response.error_message}
-                    </div>
+                    <div style="color: #dc2626; line-height: 1.7; font-size: 0.95em;">{error_html}</div>
                 </div>
                 """)
-                
-                # Add troubleshooting tips
-                if response.error_info:
-                    error_type = response.error_info.error_type.value
-                    tips = {
-                        'authentication_error': "💡 请在 config.yaml 中验证您的 API 密钥",
-                        'network_error': "💡 请检查您的网络连接",
-                        'timeout_error': "💡 请稍后重试或使用更短的提示词",
-                        'rate_limit_error': "💡 请等待 30-60 秒后重试",
-                        'validation_error': "💡 请检查您的提示词格式",
-                        'model_error': "💡 模型服务问题 - 请稍后重试"
-                    }
-                    
-                    if error_type in tips:
-                        html_parts.append(f"""
-                        <div style="background: #eff6ff; padding: 12px; border-radius: 8px; font-size: 0.9em; color: #1e40af; margin-top: 12px;">
-                            {tips[error_type]}
-                        </div>
-                        """)
             else:
-                # Modern success content display
+                # Success content display with markdown
                 rendered_content = self._render_markdown(response.content) if response.content else "No content"
                 html_parts.append(f"""
-                <div style="background: white; padding: 20px; border-radius: 10px; line-height: 1.7; color: #374151; font-size: 0.95em;">
+                <div class="model-response" style="background: white; padding: 20px; border-radius: 10px; line-height: 1.7; color: #374151; font-size: 0.95em;">
                     {rendered_content}
                 </div>
                 """)
-                
-                # Modern copy button
-                escaped_content = response.content.replace('`', '\\`').replace('\n', '\\n').replace('\r', '\\r').replace('"', '\\"') if response.content else ""
-                html_parts.append(f"""
-                <button onclick="navigator.clipboard.writeText(`{escaped_content}`).then(() => {{
-                    this.innerHTML = '✅ 已复制！';
-                    this.style.background = '#10b981';
-                    setTimeout(() => {{ 
-                        this.innerHTML = '📋 复制回答'; 
-                        this.style.background = '#3b82f6';
-                    }}, 2000);
-                }})" 
-                        style="margin-top: 16px; padding: 10px 20px; background: #3b82f6; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 0.9em; font-weight: 600; transition: all 0.2s; box-shadow: 0 2px 4px rgba(59, 130, 246, 0.3);"
-                        onmouseover="this.style.background='#2563eb'; this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 8px rgba(59, 130, 246, 0.4)';"
-                        onmouseout="this.style.background='#3b82f6'; this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 4px rgba(59, 130, 246, 0.3)';">
-                    📋 复制回答
-                </button>
-                """)
             
-            html_parts.append('</div></div>')  # Close card body and card
+            html_parts.append('</div></div>')
         
         html_parts.append('</div>')
         
@@ -488,56 +442,81 @@ class GradioInterface:
         """Format streaming model responses as HTML for real-time display."""
         html_parts = []
         
-        # Add summary header
+        # Add summary header with modern styling
         html_parts.append(f"""
-        <div style="background-color: #f0f9ff; padding: 12px; border-radius: 8px; margin-bottom: 16px;">
-            <h3>📋 对比进行中</h3>
-            <p><strong>提示词：</strong> {prompt[:200]}{'...' if len(prompt) > 200 else ''}</p>
-            <p><strong>进度：</strong> {completed}/{total} 个模型已完成</p>
+        <div style="background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%); padding: 16px 20px; border-radius: 12px; margin-bottom: 20px; border-left: 4px solid #3b82f6;">
+            <h3 style="margin: 0 0 12px 0; color: #1e40af; font-size: 1.2em;">📋 对比进行中</h3>
+            <p style="margin: 0 0 8px 0; color: #1e3a8a;"><strong>提示词：</strong> {prompt[:200]}{'...' if len(prompt) > 200 else ''}</p>
+            <p style="margin: 0; color: #1e3a8a;"><strong>进度：</strong> {completed}/{total} 个模型已完成</p>
         </div>
         """)
         
-        # Add responses in grid layout
-        html_parts.append('<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 16px;">')
+        # Add responses in modern grid layout
+        html_parts.append('<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(450px, 1fr)); gap: 20px;">')
         
         for model_id, response in responses.items():
             if response is None:
-                # Model is still pending
+                # Model is still pending - modern loading state
                 html_parts.append(f"""
-                <div class="model-response" style="border: 1px solid #ddd; border-radius: 8px; padding: 12px; margin: 8px 0; background-color: #f9f9f9;">
-                    <div class="model-header" style="font-weight: bold; color: #2563eb; margin-bottom: 8px;">
-                        ⏳ {model_id}
-                        <span style="float: right; font-size: 0.9em; color: #666;">等待中...</span>
+                <div style="background: linear-gradient(135deg, #f9fafb 0%, #f3f4f6 100%); border: 2px solid #d1d5db; border-radius: 16px; padding: 0; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
+                    <!-- Card Header -->
+                    <div style="background: white; padding: 16px 20px; border-bottom: 2px solid #d1d5db;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <h3 style="margin: 0; color: #1f2937; font-size: 1.2em; font-weight: 700;">
+                                {model_id}
+                            </h3>
+                            <span style="background: #f59e0b; color: white; padding: 4px 12px; border-radius: 20px; font-size: 0.85em; font-weight: 600;">⏳ 等待中</span>
+                        </div>
                     </div>
-                    <div style="color: #666; font-style: italic;">
-                        等待响应...
+                    
+                    <!-- Card Body -->
+                    <div style="padding: 20px;">
+                        <div style="color: #6b7280; font-style: italic; text-align: center; padding: 20px;">
+                            等待响应...
+                        </div>
                     </div>
                 </div>
                 """)
             else:
-                # Model has completed
-                success_class = "success-response" if response.error_message is None else "error-response"
-                status_icon = "✅" if response.error_message is None else "❌"
-                border_color = "#10b981" if response.error_message is None else "#ef4444"
-                bg_color = "#f0fdf4" if response.error_message is None else "#fef2f2"
+                # Model has completed - modern success/error state
+                is_success = response.error_message is None
                 
-                duration_text = f"{response.duration:.2f}s" if response.duration else "N/A"
+                if is_success:
+                    border_color = "#10b981"
+                    bg_gradient = "linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)"
+                    status_badge = '<span style="background: #10b981; color: white; padding: 4px 12px; border-radius: 20px; font-size: 0.85em; font-weight: 600;">✓ 成功</span>'
+                else:
+                    border_color = "#ef4444"
+                    bg_gradient = "linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%)"
+                    status_badge = '<span style="background: #ef4444; color: white; padding: 4px 12px; border-radius: 20px; font-size: 0.85em; font-weight: 600;">✗ 错误</span>'
+                
+                duration_text = f"{response.duration:.2f}秒" if response.duration else "N/A"
                 timestamp_text = response.timestamp.strftime("%H:%M:%S") if response.timestamp else "N/A"
                 
                 html_parts.append(f"""
-                <div class="model-response {success_class}" style="border: 2px solid {border_color}; border-radius: 8px; padding: 12px; margin: 8px 0; background-color: {bg_color};">
-                    <div class="model-header" style="font-weight: bold; color: #2563eb; margin-bottom: 8px;">
-                        {status_icon} {model_id}
-                        <span style="float: right; font-size: 0.9em; color: #666;">
-                            {duration_text} | {timestamp_text}
-                        </span>
+                <div style="background: {bg_gradient}; border: 2px solid {border_color}; border-radius: 16px; padding: 0; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.08);">
+                    <!-- Card Header -->
+                    <div style="background: white; padding: 16px 20px; border-bottom: 2px solid {border_color};">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                            <h3 style="margin: 0; color: #1f2937; font-size: 1.2em; font-weight: 700;">
+                                {model_id}
+                            </h3>
+                            {status_badge}
+                        </div>
+                        <div style="display: flex; gap: 16px; font-size: 0.9em; color: #6b7280;">
+                            <span><strong>⏱️ 用时：</strong>{duration_text}</span>
+                            <span>🕐 {timestamp_text}</span>
+                        </div>
                     </div>
+                    
+                    <!-- Card Body -->
+                    <div style="padding: 20px;">
                 """)
                 
                 if response.error_message:
                     html_parts.append(f"""
-                    <div style="padding: 12px; background-color: #fef2f2; border-radius: 6px; border-left: 4px solid #ef4444;">
-                        <div style="color: #dc2626; line-height: 1.6;">
+                    <div style="background: white; padding: 16px; border-radius: 10px; border-left: 4px solid #ef4444;">
+                        <div style="color: #dc2626; line-height: 1.7; font-size: 0.95em;">
                             {response.error_message}
                         </div>
                     </div>
@@ -545,12 +524,12 @@ class GradioInterface:
                 else:
                     rendered_content = self._render_markdown(response.content) if response.content else "No content"
                     html_parts.append(f"""
-                    <div style="white-space: normal; line-height: 1.6; margin-bottom: 8px; overflow-wrap: break-word;">
+                    <div style="background: white; padding: 20px; border-radius: 10px; line-height: 1.7; color: #374151; font-size: 0.95em;">
                         {rendered_content}
                     </div>
                     """)
                 
-                html_parts.append('</div>')
+                html_parts.append('</div></div>')  # Close card body and card
         
         html_parts.append('</div>')
         
